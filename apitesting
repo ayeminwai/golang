@@ -1,0 +1,317 @@
+
+========================================== API Testing code =====================================================
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strconv"
+	"strings"
+	_ "github.com/go-sql-driver/mysql"
+)
+var post_testcase = []Testcase{
+	Testcase{"1", InputData{1, "This is YMA"}, "posts/create", "POST", ExpectedData{"New post was created!","S"}},
+	Testcase{"2", InputData{2, "This is AMW"}, "posts/create", "POST", ExpectedData{"New post was created!","S"}},
+	Testcase{"3", InputData{3, "This is SOEMOE"}, "posts/create", "POST", ExpectedData{"New post was created!","S"}},
+	Testcase{"4", InputData{3, "This is BABY"}, "posts/3", "PUT", ExpectedData{"Post updated!","S"}},
+	Testcase{"5", InputData{0, ""}, "posts/1", "GET", ExpectedData{"This is YMA","O"}},
+	Testcase{"6", InputData{0, ""}, "posts", "GET", ExpectedData{"3","A"}},
+	Testcase{"7", InputData{0, ""}, "posts/3", "GET", ExpectedData{"This is BABY","O"}},
+	Testcase{"8", InputData{0, ""}, "posts/3", "DELETE", ExpectedData{"Post deleted!","S"}},
+	Testcase{"9", InputData{0, ""}, "posts", "GET", ExpectedData{"2","A"}},
+}
+
+var base_url = "http://localhost:8000/"
+var db *sql.DB
+var err error
+
+type InputData struct{
+	ID int `json:"id"`
+	Title string `json:"Title"`
+}
+type ExpectedData struct {
+	ExpData string `json:"message"`
+	ResultType string `json:"resultType"`
+}
+type Testcase struct {
+	CaseId string `json:"case_id"`
+	InputData InputData `json:"input_data"`
+	Url string `json:"url"`
+	Method string `json:"method"`
+	ExpectedData ExpectedData `json:"expected_data"`
+}
+
+func main() {
+	// do DB clean function here
+	db,err = sql.Open("mysql","root:root@tcp(127.0.0.1:3306)/post")
+	if err != nil{
+		panic(err.Error())
+	}
+	defer db.Close()
+
+	// go clean DB
+	cleanDB()
+
+	// do looping and test each testcase
+	for _, info := range post_testcase {
+		var res string // declare result string variable
+		if "GET" == info.Method { // validate testcase is GET fun
+			result := goGet(info.Url) // call get fun and get response payload
+
+			if info.ExpectedData.ResultType == "A" { // if actual result is Array type
+				buf := []byte(result) // change to byte data for response payload result
+				var tmp []interface{} // declare generic array type for change byte to
+				if err := json.Unmarshal(buf, &tmp); err != nil {
+					return
+				}
+				res = strconv.Itoa(len(tmp)) // (change int to string (array length))
+			} else if info.ExpectedData.ResultType == "O"{
+				buf := []byte(result) // change to byte data
+				data := InputData{} //declare match object
+				if err := json.Unmarshal(buf, &data); err != nil {
+					return
+				}
+				res = data.Title // get title to test by expected data
+			} else {
+				res = result
+			}
+		} else if "POST" == info.Method { // validate is testcase is POST fun
+			inputdata, err := json.Marshal(info.InputData) // change struct type to json string type
+			if err != nil {	// validate is error
+				fmt.Println(err) // log or print error
+				return
+			}
+			res = goPost(info.Url, string(inputdata)) //call POST fun and get response payload
+		} else if "DELETE" == info.Method { // validate testcase is DELETE fun
+			res = goDelete(info.Url, string(info.InputData.ID)) // call DELETE fun and get response payload
+		} else if "PUT" == info.Method { // validate testcase is PUT fun
+			inputdata, err := json.Marshal(info.InputData) // change struct type to json string type
+			if err != nil {	// validate is error
+				fmt.Println(err) // log or print error
+				return
+			}
+			res = goPut(info.Url, string(inputdata)) // call PUT fun and get response payload
+		} else { // if not above method show below message
+			fmt.Println("This Request Method not support here")
+		}
+
+		fmt.Println("========== Start test case ",info.CaseId,"==============")
+
+		fmt.Println("Test Case ", info.CaseId, info.Method, " expected result is '", info.ExpectedData.ExpData, "' actual result is = '", res,"'")
+
+		if res == info.ExpectedData.ExpData { // validate response payload is equals expected result data
+			fmt.Println("Test case ", info.CaseId, " is Success") // if equal show success message
+		} else {
+			fmt.Println("Test Case ", info.CaseId, " is Fail") // if not equal show fail message
+		}
+
+		fmt.Println("========== End test case ",info.CaseId,"==============")
+	}
+}
+
+// go get func for GET method , request parameter only url string type
+func goGet(url string) string {
+	full_url := base_url+url // sum base url and dynamic method url
+	client := &http.Client{} // declare client for http call
+	req,err := http.NewRequest("GET", full_url, strings.NewReader("")) // create http request func by parameters
+	if err != nil{ // validate has error
+		fmt.Println(err) // has err print error message
+	}
+	req.Header.Add("Content-Type","application/json") // set request Content-Type is "application/json"
+
+	res,err :=client.Do(req) // Do approve client request for http new Request
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body) // Read all response payload body data And got body and error
+	return string(body) // actual result
+}
+
+func goPost(url string, data string) string {
+	full_url := base_url+url
+	payload := strings.NewReader(data) // set input data here
+	client := &http.Client{}
+	req,err := http.NewRequest("POST", full_url, payload)
+	if err != nil{
+		fmt.Println(err)
+	}
+	req.Header.Add("Content-Type","application/json")
+
+	res,err :=client.Do(req)
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	fmt.Println(string(body))
+	return string(body) // actual result
+}
+
+func goPut(url string, data string) string {
+	full_url := base_url + url
+	payload := strings.NewReader(data) // set input data here
+	client := &http.Client{}
+	req,err := http.NewRequest("PUT", full_url, payload)
+	if err != nil{
+		fmt.Println(err)
+	}
+	req.Header.Add("Content-Type","application/json")
+
+	res,err :=client.Do(req)
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	return string(body) // actual result
+}
+
+func goDelete(url string, id string) string {
+	full_url := base_url + url
+	client := &http.Client{}
+	req,err := http.NewRequest("DELETE", full_url, strings.NewReader(""))
+	if err != nil{
+		fmt.Println(err)
+	}
+	req.Header.Add("Content-Type","application/json")
+
+	res,err :=client.Do(req)
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	return string(body) // actual result
+}
+
+func cleanDB(){
+	stmt,err := db.Prepare("truncate table posts")
+	if err != nil{
+		panic(err.Error())
+	}
+	_,err = stmt.Exec()
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println("Database clean success")
+}
+
+
+========================================== Service =====================================================
+
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/mux"
+	"io/ioutil"
+	"net/http"
+)
+type Post struct {
+	ID int `json:"id"`
+	Title string `json:"title"`
+}
+var db *sql.DB
+var err error
+
+func main()  {
+	db,err = sql.Open("mysql","root:root@tcp(127.0.0.1:3306)/post")
+	if err != nil{
+		panic(err.Error())
+	}
+	defer db.Close()
+
+	router := mux.NewRouter()
+	router.HandleFunc("/posts",getPosts).Methods("GET")
+	router.HandleFunc("/posts/create",createPosts).Methods("POST")
+	router.HandleFunc("/posts/{id}",getPost).Methods("GET")
+	router.HandleFunc("/posts/{id}",updatePosts).Methods("PUT")
+	router.HandleFunc("/posts/{id}",deletePosts).Methods("DELETE")
+
+	http.ListenAndServe(":8000",router)
+}
+func getPosts(w http.ResponseWriter,r *http.Request){
+	fmt.Println("Hello get posts service")
+	w.Header().Set("Content-Type","application/json")
+	var posts []Post
+	result, err := db.Query("SELECT id,title from posts")
+	if err != nil{
+		panic(err.Error())
+	}
+	defer result.Close()
+	for result.Next(){
+		var post Post
+		err := result.Scan(&post.ID,&post.Title)
+		if err != nil{
+			panic(err.Error())
+		}
+		posts = append(posts, post)
+	}
+	json.NewEncoder(w).Encode(posts)
+}
+func createPosts(w http.ResponseWriter,r *http.Request){
+	w.Header().Set("Content-Type","application/json")
+	stmt,err := db.Prepare("insert into posts(title) values(?)")
+	if err != nil{
+		panic(err.Error())
+	}
+	body,err := ioutil.ReadAll(r.Body)
+		if err != nil{
+			panic(err.Error())
+		}
+		keyVal := make(map[string]string)
+		json.Unmarshal(body,&keyVal)
+		title := keyVal["Title"]
+		_,err = stmt.Exec(title)
+		if err != nil{
+			panic(err.Error())
+	}
+	fmt.Fprintf(w,"New post was created!")
+}
+func getPost(w http.ResponseWriter,r *http.Request){
+	w.Header().Set("Content-Type","application/json")
+	params := mux.Vars(r)
+	result,err := db.Query("select id,title from posts where id=?",params["id"])
+	if err != nil{
+		panic(err.Error())
+	}
+	defer result.Close()
+	var post Post
+	for result.Next() {
+		err := result.Scan(&post.ID, &post.Title)
+		if err != nil {
+			panic(err.Error())
+		}
+	}
+		json.NewEncoder(w).Encode(post)
+}
+func updatePosts(w http.ResponseWriter,r *http.Request){
+	fmt.Println("Hello posts update service")
+	w.Header().Set("Content-Type","application/json")
+	params := mux.Vars(r)
+	stmt,err := db.Prepare("update posts set title=? where id=?")
+	if err != nil{
+		panic(err.Error())
+	}
+	body,err := ioutil.ReadAll(r.Body)
+	if err != nil{
+		panic(err.Error())
+	}
+	keyVal := make(map[string]string)
+	json.Unmarshal(body,&keyVal)
+	newTitle := keyVal["Title"]
+	fmt.Println(newTitle , " is my new title")
+	_,err = stmt.Exec(newTitle,params["id"])
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Fprintf(w,"Post updated!")
+	}
+func deletePosts(w http.ResponseWriter,r *http.Request){
+	w.Header().Set("Content-Type","application/json")
+	params := mux.Vars(r)
+	stmt,err := db.Prepare("delete from posts where id=?")
+	if err != nil{
+		panic(err.Error())
+	}
+	_,err = stmt.Exec(params["id"])
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Fprintf(w,"Post deleted!")
+}
